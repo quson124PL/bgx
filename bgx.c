@@ -25,6 +25,7 @@ typedef struct bgx_header{
     uint8_t flags; // 0x1 will be RLE enable and RLE is meant to be in all bitdepths
     uint8_t palette_size;
 } __attribute__((packed)) bgx_header_t;
+#define FLAG_RLE 0x1
 
 uint32_t prevcolors[256];
 
@@ -114,12 +115,19 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
     if (colors > 15) new_header.bpp = 8;
     new_header.palette_size = colors;
     new_header.version = QBGX_VERSION;
+    if (encode_RLE) new_header.flags = FLAG_RLE;
     fwrite(&new_header, sizeof(new_header), 1, out);
     printf("Writing palette...\n");
     for (int i = 0; i <= colors; i++){
         fwrite(&(prevcolors[i]), sizeof(uint32_t), 1, out);
     }
     printf("Writing pixels...\n");
+
+    
+    uint8_t repeat = 0;
+    uint8_t previous_cell = 0;
+    bool first_cell = true;
+
     uint8_t cell = 0;
     uint8_t written = 0;
     for (int i = 0; i < file_length; i+=4){
@@ -135,7 +143,19 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
                 cell |= (index << 7-written);
                 written++;
                 if (written == 8){
-                    fwrite(&cell, sizeof(uint8_t), 1, out);
+                    if (encode_RLE){
+                        if ((previous_cell != cell || repeat == 255) && !first_cell){
+                            fwrite(&repeat, sizeof(uint8_t), 1 , out);
+                            fwrite(&previous_cell, sizeof(uint8_t), 1, out);
+                            previous_cell = cell;
+                            repeat = 0;
+                        } else {
+                            first_cell = false;
+                            repeat++;
+                        }
+                    } else {
+                        fwrite(&cell, sizeof(uint8_t), 1, out);
+                    }
                     written = 0;
                     cell = 0;
                 }
@@ -144,7 +164,19 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
                 cell |= (index << 6-(2*(written)));
                 written++;
                 if (written == 4){
-                    fwrite(&cell, sizeof(uint8_t), 1, out);
+                    if (encode_RLE){
+                        if ((previous_cell != cell || repeat == 255) && !first_cell){
+                            fwrite(&repeat, sizeof(uint8_t), 1 , out);
+                            fwrite(&previous_cell, sizeof(uint8_t), 1, out);
+                            previous_cell = cell;
+                            repeat = 0;
+                        } else {
+                            first_cell = false;
+                            repeat++;
+                        }
+                    } else {
+                        fwrite(&cell, sizeof(uint8_t), 1, out);
+                    }
                     written = 0;
                     cell = 0;
                 }
@@ -153,13 +185,37 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
                 cell |= (index << 4-(4*(written)));
                 written++;
                 if (written == 2){
-                    fwrite(&cell, sizeof(uint8_t), 1, out);
+                    if (encode_RLE){
+                        if ((previous_cell != cell || repeat == 255) && !first_cell){
+                            fwrite(&repeat, sizeof(uint8_t), 1 , out);
+                            fwrite(&previous_cell, sizeof(uint8_t), 1, out);
+                            previous_cell = cell;
+                            repeat = 0;
+                        } else {
+                            first_cell = false;
+                            repeat++;
+                        }
+                    } else {
+                        fwrite(&cell, sizeof(uint8_t), 1, out);
+                    }
                     written = 0;
                     cell = 0;
                 }
                 break;
             case 8:
-                fwrite(&index, sizeof(uint8_t), 1, out);
+                if (encode_RLE){
+                    if ((previous_cell != index || repeat == 255) && !first_cell){
+                        fwrite(&repeat, sizeof(uint8_t), 1 , out);
+                        fwrite(&previous_cell, sizeof(uint8_t), 1, out);
+                        previous_cell = index;
+                        repeat = 0;
+                    } else {
+                        first_cell = false;
+                        repeat++;
+                    }
+                } else {
+                    fwrite(&index, sizeof(uint8_t), 1, out);
+                }
                 break;
             default:
                 printf("Unsupported Bitdepth\n");
@@ -216,8 +272,43 @@ int decode(FILE *data, unsigned char* out_path){
         return -1;
     }
     uint8_t cell;
-    for (int i = 0; i<pixel_count; i++){
-        
+    uint8_t cell_repeat;
+    uint64_t pixels = 0;
+    if (header.flags & FLAG_RLE){
+        while (pixels<header.width*header.height){
+            fread(&cell_repeat, sizeof(uint8_t), 1, data);
+            fread(&cell, sizeof(uint8_t), 1, data);
+            uint8_t pixel_pos, index;
+            for (int i = 0;i<=cell_repeat*cell_count+cell_count;i++){
+                switch (header.bpp){
+                case 1:
+                    pixel_pos = 7-((i%8));
+                    index = (cell >> pixel_pos) & 0x1;
+                    break;
+                case 2:
+                    pixel_pos = 6-((i%4)*2);
+                    index = (cell >> pixel_pos) & 0x3;
+                    break;
+                case 4:
+                    pixel_pos = 4-((i%2)*4);
+                    index = (cell >> pixel_pos) & 0xF;
+                    break;
+                case 8:
+                    index = cell;
+                    break;
+                default:
+                    printf("Unsupported bitdepth\n");
+                    return -1;  
+                }
+                RGBA_Buffer[pixels+i-cell_count] = prevcolors[index] >> 24;
+                RGBA_Buffer[pixels+i-cell_count] |= (prevcolors[index] & 0x00FF0000) >> 8;
+                RGBA_Buffer[pixels+i-cell_count] |= (prevcolors[index] & 0x0000FF00) << 8;
+                RGBA_Buffer[pixels+i-cell_count] |= (prevcolors[index] & 0x000000FF) << 24;
+            }
+            pixels+=(cell_repeat*cell_count)+cell_count;
+        }
+    } else {
+        for (int i = 0; i<pixel_count; i++){    
         if (i%cell_count == 0) fread(&cell, sizeof(uint8_t), 1, data);
         uint8_t pixel_pos, index;
         switch (header.bpp){
@@ -247,6 +338,9 @@ int decode(FILE *data, unsigned char* out_path){
         RGBA_Buffer[i] |= (prevcolors[index] & 0x000000FF) << 24;
     }
 
+    
+    }
+
     stbi_write_png(out_path, header.width, header.height, 4, (uint8_t*)RGBA_Buffer, header.width*4);
 
     free(RGBA_Buffer);
@@ -268,7 +362,11 @@ int main(int argc, char *argv[]){
         return -1;
     }
 
-
+    for (int i = 0; i<argc; i++){
+        if (strcmp(argv[i],"rle") == 0){
+            encode_RLE = true;
+        }
+    }
     
     switch (argv[1][0]){
         case 'e':

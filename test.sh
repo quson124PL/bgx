@@ -6,6 +6,11 @@ for f in ./source/*.png; do
     ./bgx e "$f" "./sample/$name.bgx"
 done
 
+for f in ./source/*.png; do
+    name="${f:t:r}"   # filename without path and extension
+    ./bgx e "$f" "./sample/rle$name.bgx" rle
+done
+
 # Decode BGX → PNG
 for f in ./sample/*.bgx; do
     name="${f:t:r}"
