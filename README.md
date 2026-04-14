@@ -9,4 +9,8 @@ Used for an osdev project
 - Supports 32-bit RGBA, (WIP) 6-bit VGA DAC and EGA Attribute colors for the palette.
 <hr>
 
-## for now no license
+## License
+
+This project is licensed under the Mozilla Public License 2.0 (MPL-2.0).
+
+See the LICENSE file for details.
