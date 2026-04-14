@@ -1,3 +1,3 @@
 all:
-	gcc bgx.c -o bgx
+	gcc -Os -static-libgcc bgx.c -o bgx
 	chmod +x ./bgx

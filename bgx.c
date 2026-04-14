@@ -19,8 +19,14 @@
 #include "stb_image_write.h"
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_HDR
-#define STBI_NO_LINEAR
+
+// Supporting predictable formats.
 #define STBI_ONLY_PNG
+#define STBI_ONLY_GIF
+#define STBI_ONLY_BMP
+#define STBI_ONLY_TGA
+
+#define STBI_NO_LINEAR
 #define STBI_SUPPORT_ZLIB
 #include "stb_image.h"
 
@@ -44,6 +50,20 @@ char* check = "QBGX";
 unsigned char *fptr;
 FILE *bgxf = NULL;
 
+void ShowHelp(unsigned char* bgx_filename){
+    printf("Command Syntax:\n"
+            "%s [mode] [input] [output] [additional argument]\n"
+            "Available Modes:\n"
+            " - d (Decode - Convert a .bgx file to .png with automatic settings)\n"
+            " - e (Encode - Convert a PNG, GIF, BMP or TGA file to .png with automatic settings)\n"
+            " - i (Info - Shows information about the .bgx file)\n"
+            "Available Arguments:\n"
+            " - rle (Applies run length encoding on encoded bytes)\n",
+            bgx_filename
+    );
+    return;
+}
+
 bool INTERNAL_colorExists(uint32_t* array, uint32_t color, uint32_t max_entries ){
     uint32_t temp;
     for (int k = 0; k<=max_entries; k++){
@@ -63,6 +83,10 @@ uint8_t INTERNAL_GetIndex(uint32_t* array, uint32_t color, uint32_t max_entries 
 }
 
 int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
+    if ( x > UINT16_MAX || y > UINT16_MAX){
+        printf("Image size too big!\n");
+        return -1;
+    }
     uint32_t file_length = x*y*4;
     uint32_t color_value;
     memset(prevcolors, 0, sizeof(prevcolors));
@@ -109,7 +133,7 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
     printf("Total Unique Colors: %u\n", colors+1);
     for(int i = 0; i<=colors; i++){
         printf("   #%08X",prevcolors[i]);
-        if (i%4 == 0 && i != 0) putchar('\n');
+        if ((i+1)%4 == 0) putchar('\n');
     }
     putchar('\n');
     bgx_header_t new_header;
@@ -129,6 +153,7 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
     printf("Writing palette...\n");
     for (int i = 0; i <= colors; i++){
         fwrite(&(prevcolors[i]), sizeof(uint32_t), 1, out);
+        
     }
     printf("Writing pixels...\n");
 
@@ -233,6 +258,39 @@ int encode(int x, int y, int n, unsigned char *in_data, FILE* out){
     }
     printf("Header+Palette size: %u Bytes\n", sizeof(bgx_header_t)+((colors+1)*4));
 }
+int info(FILE* data){
+    char magic[5];
+    bgx_header_t header;
+    fread(&header, sizeof(header), 1, data);
+
+    memcpy(magic, &header.magic, 4);
+    magic[4] = 0;
+
+    printf("File Info:\n");
+    if (strcmp(magic, check) == 0){
+        printf("Version: %u\n", header.version);
+        printf("Width x Height: %ux%u\n", header.width, header.height);
+        printf("Bit depth: %u bit\n", header.bpp);
+        printf("Flags: 0x%X, Which mean:\n", header.flags);
+        if (header.flags == 0) printf("  This is a normal BGX File.\n");
+        if (header.flags & 0x1) printf("  This BGX file uses RLE for compression.\n");
+        printf("Palette size: %u, Colors:\n", header.palette_size+1);
+        memset(prevcolors, 0, sizeof(prevcolors));
+        for (int i = 0; i <= header.palette_size; i++ ){
+            uint32_t temp;
+            fread(&temp, sizeof(uint32_t), 1, data);
+            prevcolors[i] = temp;
+            printf("   #%08X", temp);
+            if ((i+1)%4 == 0) putchar('\n');
+        }
+        putchar('\n');
+    } else {
+        printf("not a BGX!\n");
+        return -1;
+    }
+    printf("Header+Palette size: %u Bytes\n", sizeof(bgx_header_t)+(header.palette_size)*4);
+    return 0;
+}
 
 int decode(FILE *data, unsigned char* out_path){
     char magic[5];
@@ -248,15 +306,19 @@ int decode(FILE *data, unsigned char* out_path){
         printf("Version: %u\n", header.version);
         printf("Width x Height: %ux%u\n", header.width, header.height);
         printf("Bit depth: %u bit\n", header.bpp);
-        printf("Flags: 0x%X\n", header.flags);
+        printf("Flags: 0x%X, Which mean:\n", header.flags);
+        if (header.flags == 0) printf("  This is a normal BGX File.\n");
+        if (header.flags & 0x1) printf("  This BGX file uses RLE for compression.\n");
         printf("Palette size: %u, Colors:\n", header.palette_size+1);
         memset(prevcolors, 0, sizeof(prevcolors));
         for (int i = 0; i <= header.palette_size; i++ ){
             uint32_t temp;
             fread(&temp, sizeof(uint32_t), 1, data);
             prevcolors[i] = temp;
-            if (i%4 == 0 && i != 0) printf("   #%08X\n", temp);
+            printf("   #%08X", temp);
+            if ((i+1)%4 == 0) putchar('\n');
         }
+        putchar('\n');
     } else {
         printf("not a BGX!\n");
         return -1;
@@ -314,7 +376,12 @@ int decode(FILE *data, unsigned char* out_path){
                 RGBA_Buffer[pixels+(i)] |= (prevcolors[index] & 0x0000FF00) << 8;
                 RGBA_Buffer[pixels+(i)] |= (prevcolors[index] & 0x000000FF) << 24;
             }
-            pixels+=(cell_repeat*cell_count)+cell_count;
+            if (pixels == 0){
+                pixels+=(cell_repeat*cell_count);
+            } else {
+                pixels+=(cell_repeat*cell_count)+cell_count;
+            }
+            
         }
     } else {
         for (int i = 0; i<pixel_count; i++){    
@@ -358,16 +425,13 @@ int decode(FILE *data, unsigned char* out_path){
 
 int main(int argc, char *argv[]){
     
-    printf("BGX decoder test\n");
+    printf("BootGraphics Converison tool\n");
 
     int x,y,n;
 
     
     if (argc <= 2){
-        printf("BootGraphics file software\n"
-               "%s [mode] [input] [output]\n",
-               argv[0]
-        );
+        ShowHelp(argv[0]);
         return -1;
     }
 
@@ -392,6 +456,7 @@ int main(int argc, char *argv[]){
                 }
             } else {
                 printf("Not enough args\n");
+                ShowHelp(argv[0]);
                 return -1;
             }
             encode(x,y,n,fptr,bgxf);
@@ -408,14 +473,27 @@ int main(int argc, char *argv[]){
                 fclose(bgxf);
             } else {
                 printf("Not enough args\n");
+                ShowHelp(argv[0]);
+                return -1;
+            }
+            break;
+        case 'i':
+            if (argc > 2){
+                bgxf = fopen(argv[2], "r");
+                if (bgxf == NULL){
+                    printf("bgx file read error\n");
+                    return -1;
+                }
+                info(bgxf);
+                fclose(bgxf);
+            } else {
+                printf("Not enough args\n");
+                ShowHelp(argv[0]);
                 return -1;
             }
             break;
         default:
-            printf("BootGraphics file software\n"
-               "%s [mode] [input] [output]\n",
-               argv[0]
-            );
+            ShowHelp(argv[0]);
             return -1;
     }
     stbi_image_free(fptr);
