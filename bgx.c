@@ -288,7 +288,7 @@ int decode(FILE *data, unsigned char* out_path){
             fread(&cell_repeat, sizeof(uint8_t), 1, data);
             fread(&cell, sizeof(uint8_t), 1, data);
             uint8_t pixel_pos, index;
-            for (int i = 0;i<=cell_repeat*cell_count+cell_count;i++){
+            for (int i = 0;i<=(cell_repeat*cell_count)+cell_count;i++){
                 switch (header.bpp){
                 case 1:
                     pixel_pos = 7-((i%8));
@@ -309,10 +309,10 @@ int decode(FILE *data, unsigned char* out_path){
                     printf("Unsupported bitdepth\n");
                     return -1;  
                 }
-                RGBA_Buffer[pixels+i-cell_count] = prevcolors[index] >> 24;
-                RGBA_Buffer[pixels+i-cell_count] |= (prevcolors[index] & 0x00FF0000) >> 8;
-                RGBA_Buffer[pixels+i-cell_count] |= (prevcolors[index] & 0x0000FF00) << 8;
-                RGBA_Buffer[pixels+i-cell_count] |= (prevcolors[index] & 0x000000FF) << 24;
+                RGBA_Buffer[pixels+(i)] = prevcolors[index] >> 24;
+                RGBA_Buffer[pixels+(i)] |= (prevcolors[index] & 0x00FF0000) >> 8;
+                RGBA_Buffer[pixels+(i)] |= (prevcolors[index] & 0x0000FF00) << 8;
+                RGBA_Buffer[pixels+(i)] |= (prevcolors[index] & 0x000000FF) << 24;
             }
             pixels+=(cell_repeat*cell_count)+cell_count;
         }
