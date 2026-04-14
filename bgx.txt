@@ -1,0 +1,5 @@
+BootGraphics
+
+Specs:
+1-bit, 2-bit, 4-bit and 8-bit depth
+optional RLE applied on bytes.
