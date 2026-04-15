@@ -18,6 +18,7 @@ Used for an osdev project
  - ```i``` (Info - Shows information about the .bgx file)
 ### Available Arguments:
  - ```rle``` (Applies run length encoding on encoded bytes)
+ - ```q``` (Quiet - Refrains from printing unless errors occur)
 
 ## License
 
