@@ -260,6 +260,9 @@ uint8_t INTERNAL_ExtractIndex(uint8_t cell, uint8_t pixels_per_cell, uint8_t i){
 }
 
 uint8_t INTERNAL_GetIndex(void* array, uint32_t color, uint32_t max_entries, uint8_t arraytype){
+    if (((color & 0xFF) == 0) && (arraytype = COLTYPE_VGADAC)){
+        return 254;
+    }
     uint32_t temp;
     for (uint32_t k = 0; k<=max_entries; k++){
     switch (arraytype){
@@ -444,7 +447,14 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             }  
             break;
         case COLTYPE_VGADAC:
+            old_value = color_value;
             INTERNAL_convertVGADACtoRGBA(&dac_color_value, &color_value);
+            color_value = (color_value & ~0xFF) | (old_value & 0xFF);
+            if ((color_value & 0xFF) == 0){
+                transparent_choice = 254;
+                index = 254;
+                break;
+            }
             if (!hashmap_get(color_value, &index, palmap)) {
                 if (palette_size == 256){
                     fprintf(stderr, "[ERROR] BGX supports only up to 256 colors\n        For higher bitdepths use a different format.\n");
