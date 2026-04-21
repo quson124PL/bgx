@@ -1,5 +1,5 @@
 linux: bgx.c
-	gcc -Os -Wall -Wextra -static-libgcc bgx.c -o bgx
+	gcc -Os -lm -Wall -Wextra -static-libgcc bgx.c -o bgx
 	chmod +x ./bgx
 
 win32: bgx.c
