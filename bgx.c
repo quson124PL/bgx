@@ -629,7 +629,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             } else {
                 index = 16;
             }
-        } index = INTERNAL_GetIndex(palette, color_value, palette_size, colorType, transparent_choice);
+        } else index = INTERNAL_GetIndex(palette, color_value, palette_size, colorType, transparent_choice);
         
         switch(new_header.bpp){
             case 1:
