@@ -622,6 +622,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
         }
         
         uint8_t index;
+
         
         if (colorType == COLTYPE_VGAPAL){
             if ((color_value & 0xFF) != 0){
@@ -631,6 +632,10 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             }
         } else index = INTERNAL_GetIndex(palette, color_value, palette_size, colorType, transparent_choice);
         
+        // if (colorType == COLTYPE_VGADAC && index == 0xF){
+        //     printf("[WARN] DUMP: 0x%02X, 0x%08X, %u, %u\n", index, color_value, palette_size, transparent_choice);
+        // }
+
         switch(new_header.bpp){
             case 1:
                 cell |= (index << (7-written));
@@ -882,8 +887,9 @@ uint32_t decode(FILE *data, char* out_path){
                 for (uint8_t k = 0; k<pixels_in_cell; k++){
                     index = INTERNAL_ExtractIndex(cell, pixels_in_cell, k);
                     if (index > header.palette_size){
-                        fprintf(stderr, "[WARNING] Index out of bounds on cell %u, found value 0x%02X.   \n          File may be corrupted. Replaced with color index #0\n", (uint32_t)cells,   index);
-                        return -1;
+                        if ((header.flags & 0b110) != FLAG_VGA_DAC){
+                            fprintf(stderr, "[WARNING] Index out of bounds on cell %u, found value 0x%02X despite only having %u colors.   \n          File may be corrupted. Replaced with color index #0\n          (%s)\n", (uint32_t)cells, index, header.palette_size+1, out_path);
+                        }
                     }
                     if (cells + i + k >= header.width*header.height) {
                         fprintf(stderr, "[WARNING] RLE decode overflow, skipping the rest (%s)\n", out_path);
