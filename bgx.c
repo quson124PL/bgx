@@ -82,7 +82,6 @@ typedef struct {
 
 #define HASHMAP_SIZE 512  // must be > max colors (256)
 hashmap_entry_t palmap[HASHMAP_SIZE];
-hashmap_entry_t vgamap[HASHMAP_SIZE];
 
 static inline uint32_t hash(uint32_t key) {
     return key * 2654435761u; // Knuth multiplicative hash
@@ -163,15 +162,16 @@ void INTERNAL_convertVGADACtoRGBA(const dacColor_t* color, uint32_t* output){
 
 void INTERNAL_convertRGBAtoEGAATC(uint32_t color, uint8_t* output){
     // 0b--RRGGBB
-    *output = (((color & 0x0000FF00) >> 8)/85); // more or less 3
-	*output |= ((((color & 0x00FF0000) >> 16)/85) << 2 );
-	*output |= ((((color & 0xFF000000) >> 24)/85) << 4 );
+    *output = (((color & 0x0000FF00) >> 8)/64); // more or less 3
+	*output |= ((((color & 0x00FF0000) >> 16)/64) << 2 );
+	*output |= ((((color & 0xFF000000) >> 24)/64) << 4 );
 }
 
 void INTERNAL_convertEGAATCtoRGBA(uint8_t color, uint32_t* output){
-    *output = ((color & 0b00110000) >> 4)*85;
-    *output |= ((color & 0b00001100) >> 2)*85;
-    *output |= ((color & 0b00000011) >> 4)*85;
+    *output = 0xFF;
+    *output |= (((color & 0b00110000) >> 4)*85) << 24;
+    *output |= (((color & 0b00001100) >> 2)*85) << 16;
+    *output |= (((color & 0b00000011))*85) << 8;
 }
 
 void ShowHelp(char* bgx_filename){
@@ -259,13 +259,14 @@ uint8_t INTERNAL_ExtractIndex(uint8_t cell, uint8_t pixels_per_cell, uint8_t i){
         }
 }
 
-uint8_t INTERNAL_GetIndex(void* array, uint32_t color, uint32_t max_entries, uint8_t arraytype){
-    if (((color & 0xFF) == 0) && (arraytype = COLTYPE_VGADAC)){
+uint8_t INTERNAL_GetIndex(void* array, uint32_t color, uint32_t max_entries, uint8_t arraytype, uint8_t transparent_index){
+    if (((color & 0xFF) == 0) && (arraytype == COLTYPE_VGADAC)){
         return 254;
     }
     uint32_t temp;
     for (uint32_t k = 0; k<=max_entries; k++){
     switch (arraytype){
+
         case COLTYPE_RGBA32:
             temp = ((uint32_t*)array)[k];
             if (temp == color) return k;
@@ -276,7 +277,10 @@ uint8_t INTERNAL_GetIndex(void* array, uint32_t color, uint32_t max_entries, uin
             if (temp == color) return k;
             break;
         case COLTYPE_EGAATC:
-            break; 
+            INTERNAL_convertEGAATCtoRGBA(((uint8_t*)array)[k], &temp);
+            if (k == transparent_index) temp = (temp & ~0xFF);
+            if (temp == color) return k;
+            break;
         default:
             fprintf(stderr, "[ERROR] Attempted to process an unknown palette.\n");
             return -1;
@@ -335,7 +339,13 @@ void INTERNAL_InsertLEColor32(uint8_t index, uint32_t* dest){
             *dest |= (output & 0x000000FF) << 24;
             break;
         case COLTYPE_EGAATC:
-            break; 
+            uint32_t temp;
+            INTERNAL_convertEGAATCtoRGBA(((uint8_t*)palette)[index], &temp);
+            *dest = temp >> 24;
+            *dest |= (temp & 0x00FF0000) >> 8;
+            *dest |= (temp & 0x0000FF00) << 8;
+            *dest |= (temp & 0x000000FF) << 24;
+            break;
         default:
             fprintf(stderr, "[ERROR] Attempted to process an unknown palette.\n");
     }
@@ -350,6 +360,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
     uint32_t file_length = x*y*4;
     uint32_t color_value;
     dacColor_t dac_color_value = {0};
+    uint8_t ega_color_value;
     uint8_t transparent_choice = 0xFF; // 0xFF is default.
     memset(palmap, 0, sizeof(palmap));
     
@@ -360,8 +371,13 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
     color_value |= (in_data[1] << 16);
     color_value |= (in_data[2] << 8);
 
-    if (colorType == COLTYPE_VGAPAL || colorType == COLTYPE_VGADAC)INTERNAL_convertRGBAtoVGADAC(color_value, &dac_color_value);
-    
+    if (colorType == COLTYPE_VGAPAL || colorType == COLTYPE_VGADAC){
+        INTERNAL_convertRGBAtoVGADAC(color_value, &dac_color_value);
+    }
+
+    if (colorType == COLTYPE_EGAATC){
+        INTERNAL_convertRGBAtoEGAATC(color_value, &ega_color_value);
+    }
 
     if (!quiet) {
             printf(
@@ -373,6 +389,9 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             x,y,n, (file_length >> 10)
             );
         switch (colorType){
+        case COLTYPE_EGAATC:
+            printf("First color: 0x%02X\n", ega_color_value);
+            break;
         case COLTYPE_RGBA32:
             printf("First color: #%06X\n", color_value);
             break;
@@ -383,8 +402,6 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                     dac_color_value.green,
                     dac_color_value.blue);
             break;
-        case COLTYPE_EGAATC:
-            break; 
         default:
             break;
     }
@@ -393,12 +410,10 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
     // There are colors already defined.
     if (colorType == COLTYPE_VGAPAL ){
         if (!quiet) printf("   Setting up the mode 13h palette...\n");
-        memset(vgamap, 0, sizeof(hashmap_entry_t)*512);
         uint32_t VGA13hImportRGBA = 0;
         //palette_size = VGAint13hPaletteSize;
-        for (int i = 0; i < VGAint13hPaletteSize; i++){
+        for (size_t i = 0; i < VGAint13hPaletteSize; i++){
             INTERNAL_convertVGADACtoRGBA(&(VGAint13hPalette[i]), &VGA13hImportRGBA);
-            hashmap_put(VGA13hImportRGBA, i, vgamap);
             ((dacColor_t*)palette)[i].red = VGAint13hPalette[i].red;
             ((dacColor_t*)palette)[i].green = VGAint13hPalette[i].green;
             ((dacColor_t*)palette)[i].blue = VGAint13hPalette[i].blue;
@@ -406,15 +421,15 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
         palette_size = VGAint13hPaletteSize;
     }
 
-
-    
     for (uint32_t i = 0; i < file_length; i+=4){
         color_value = in_data[i+3];
         color_value |= (in_data[i] << 24);
         color_value |= (in_data[i+1] << 16);
         color_value |= (in_data[i+2] << 8);
         if (colorType == COLTYPE_VGAPAL || colorType == COLTYPE_VGADAC)INTERNAL_convertRGBAtoVGADAC(color_value, &dac_color_value);
+        if (colorType == COLTYPE_EGAATC)INTERNAL_convertRGBAtoEGAATC(color_value, &ega_color_value);
 
+    
     uint8_t index = 0;
     switch (colorType){
         case COLTYPE_RGBA32:
@@ -450,11 +465,6 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             old_value = color_value;
             INTERNAL_convertVGADACtoRGBA(&dac_color_value, &color_value);
             color_value = (color_value & ~0xFF) | (old_value & 0xFF);
-            if ((color_value & 0xFF) == 0){
-                transparent_choice = 254;
-                index = 254;
-                break;
-            }
             if (!hashmap_get(color_value, &index, palmap)) {
                 if (palette_size == 256){
                     fprintf(stderr, "[ERROR] BGX supports only up to 256 colors\n        For higher bitdepths use a different format.\n");
@@ -469,12 +479,28 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             }  
             break;
         case COLTYPE_EGAATC:
+            old_value = color_value;
+            INTERNAL_convertEGAATCtoRGBA(ega_color_value, &color_value);
+            color_value = (color_value & ~0xFF) | (old_value & 0xFF);
+            if (!hashmap_get(color_value, &index, palmap)) {
+                index = palette_size;
+                ((uint8_t*)palette)[palette_size] = ega_color_value;
+                palette_size++;
+                if (transparent_choice == 0xFF && (color_value & 0xFF) == 0x0){
+                    transparent_choice = index;
+                }
+                hashmap_put(color_value, index, palmap);
+            }      
             break; 
         default:
             fprintf(stderr, "[ERROR] Attempted to process an unknown palette.\n");
             return -1;
     }
     }
+    if (colorType == COLTYPE_EGAATC && palette_size > 15){
+        fprintf(stderr, "[WARNING] Counted %u colors in the image, that is too many for real EGA\n", palette_size);
+    }
+    
 
 
     if (!quiet) printf("Total Unique Colors: %u\n", palette_size);
@@ -496,7 +522,8 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                     (((dacColor_t*)palette)[i].blue));
             break;
             case COLTYPE_EGAATC:
-                break; 
+                if (!quiet) printf("   0x%02X",((uint8_t*)palette)[i]);
+                break;
             default:
                 fprintf(stderr, "[ERROR] Attempted to process an unknown palette.\n");
                 return -1;
@@ -557,6 +584,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                 fwrite(&(((dacColor_t*)palette)[paload_i]), sizeof(dacColor_t), 1, out);
                 break;
             case COLTYPE_EGAATC:
+                fwrite(&(((uint8_t*)palette)[paload_i]), sizeof(uint8_t), 1, out);
                 break; 
             default:
                 fprintf(stderr, "[ERROR] Attempted to process an unknown palette.\n");
@@ -577,13 +605,19 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
         color_value |= (in_data[i+1] << 16);
         color_value |= (in_data[i+2] << 8);
 
-        
-
         if (colorType == COLTYPE_VGADAC || colorType == COLTYPE_VGAPAL){
             uint8_t save_alpha = color_value & 0xFF;
             dacColor_t tempcolor;
             INTERNAL_convertRGBAtoVGADAC(color_value, &tempcolor);
             INTERNAL_convertVGADACtoRGBA(&tempcolor, &color_value);
+            color_value = (color_value & ~0xFF) | save_alpha;
+        }
+
+        if (colorType == COLTYPE_EGAATC){
+            uint8_t save_alpha = color_value & 0xFF;
+            uint8_t tempcolorEGA;
+            INTERNAL_convertRGBAtoEGAATC(color_value, &tempcolorEGA);
+            INTERNAL_convertEGAATCtoRGBA(tempcolorEGA, &color_value);
             color_value = (color_value & ~0xFF) | save_alpha;
         }
         
@@ -595,9 +629,8 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             } else {
                 index = 16;
             }
-        } else index = INTERNAL_GetIndex(palette, color_value, palette_size, colorType);
+        } index = INTERNAL_GetIndex(palette, color_value, palette_size, colorType, transparent_choice);
         
-
         switch(new_header.bpp){
             case 1:
                 cell |= (index << (7-written));
@@ -709,6 +742,7 @@ uint32_t info(FILE* data){
         for (uint32_t i = 0; i <= header.palette_size; i++ ){
             uint32_t temp;
             dacColor_t tempdac;
+            uint8_t tempEGA;
             switch (header.flags & 0b110){
                 case FLAG_VGA_PAL:
                     INTERNAL_convertVGADACtoRGBA(&(VGAint13hPalette[i]), &temp);
@@ -724,6 +758,11 @@ uint32_t info(FILE* data){
                     if ((i+1)%4 == 0) if (!quiet) putchar('\n');
                     break;
                 case FLAG_EGA_ATC:
+                    fread(&tempEGA, sizeof(dacColor_t), 1, data);
+                    INTERNAL_convertEGAATCtoRGBA(tempEGA, &temp);
+                    ((uint8_t*)palette)[i] = temp;
+                    if (!quiet) printf("   #%08X", temp);
+                    if ((i+1)%4 == 0) if (!quiet) putchar('\n');
                     break; 
                 default:
                     fread(&temp, sizeof(uint32_t), 1, data);
@@ -767,6 +806,7 @@ uint32_t decode(FILE *data, char* out_path){
         for (uint32_t i = 0; i <= header.palette_size; i++ ){
             uint32_t temp;
             dacColor_t tempdac;
+            uint8_t tempEGA;
             switch (header.flags & 0b110){
                 case FLAG_VGA_PAL:
                     INTERNAL_convertVGADACtoRGBA(&(VGAint13hPalette[i]), &temp);
@@ -782,6 +822,11 @@ uint32_t decode(FILE *data, char* out_path){
                     if ((i+1)%4 == 0) if (!quiet) putchar('\n');
                     break;
                 case FLAG_EGA_ATC:
+                    fread(&tempEGA, sizeof(uint8_t), 1, data);
+                    INTERNAL_convertEGAATCtoRGBA(tempEGA, &temp);
+                    ((uint32_t*)palette)[i] = temp;
+                    if (!quiet) printf("   #%08X", temp);
+                    if ((i+1)%4 == 0) if (!quiet) putchar('\n');
                     break; 
                 default:
                     fread(&temp, sizeof(uint32_t), 1, data);
@@ -837,11 +882,11 @@ uint32_t decode(FILE *data, char* out_path){
                 for (uint8_t k = 0; k<pixels_in_cell; k++){
                     index = INTERNAL_ExtractIndex(cell, pixels_in_cell, k);
                     if (index > header.palette_size){
-                        if (!quiet) printf("[WARNING] Index out of bounds on cell %u, found value 0x%02X.   \n          File may be corrupted. Replaced with color index #0\n", (uint32_t)cells,   index);
+                        fprintf(stderr, "[WARNING] Index out of bounds on cell %u, found value 0x%02X.   \n          File may be corrupted. Replaced with color index #0\n", (uint32_t)cells,   index);
                         return -1;
                     }
                     if (cells + i + k >= header.width*header.height) {
-                        printf("[WARNING] RLE decode overflow, skipping the rest (%s)\n", out_path);
+                        fprintf(stderr, "[WARNING] RLE decode overflow, skipping the rest (%s)\n", out_path);
                         goto skip_rle;
                     }
                     RGBA_Buffer[cells+i+k] = ((uint32_t*)palette)[index] >> 24;
@@ -1090,7 +1135,8 @@ const uint32_t EGAATCPalette[] = {
     0x555500FF, 0x5555AAFF, 0x55FF00FF, 0x55FFAAFF,
     0xFF5500FF, 0xFF55AAFF, 0xFFFF00FF, 0xFFFFAAFF,
     0x555555FF, 0x5555FFFF, 0x55FF55FF, 0x55FFFFFF,
-    0xFF5555FF, 0xFF55FFFF, 0xFFFF55FF, 0xFFFFFFFF
+    0xFF5555FF, 0xFF55FFFF, 0xFFFF55FF, 0xFFFFFFFF,
+    0x00000000 // Transparent color.
 
 };
 
