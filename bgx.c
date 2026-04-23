@@ -70,9 +70,6 @@ typedef struct bgx_header{
 #define FLAG_VGA_DAC 0x4
 #define FLAG_EGA_ATC 0x6
 
-
-
-
 // HASHmap FUNCTIONS
 typedef struct {
     uint32_t key;
@@ -127,8 +124,6 @@ typedef struct dacColor {
 } __attribute__((packed)) dacColor_t;
 extern const dacColor_t VGAint13hPalette[];
 const size_t VGAint13hPaletteSize;
-extern const uint32_t EGAATCPalette[];
-const size_t EGAATCPaletteSize;
 
 //uint32_t palette[256];
 void* palette;
@@ -465,6 +460,11 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             old_value = color_value;
             INTERNAL_convertVGADACtoRGBA(&dac_color_value, &color_value);
             color_value = (color_value & ~0xFF) | (old_value & 0xFF);
+            if ((color_value & 0xFF) == 0){
+                transparent_choice = 254;
+                index = 254;
+                break;
+            }
             if (!hashmap_get(color_value, &index, palmap)) {
                 if (palette_size == 256){
                     fprintf(stderr, "[ERROR] BGX supports only up to 256 colors\n        For higher bitdepths use a different format.\n");
@@ -1118,30 +1118,6 @@ const dacColor_t VGAint13hPalette[] = {
 	{11,16,11}, {11,16,12}, {11,16,13}, {11,16,15}, 
 	{11,16,16}, {11,15,16}, {11,13,16}, {11,12,16}, 
 };
-
-const uint32_t EGAATCPalette[] = {
-    0x000000FF, 0x0000AAFF, 0x00AA00FF, 0x00AAAAFF,
-    0xAA0000FF, 0xAA00AAFF, 0xAAAA00FF, 0xAAAAAAFF,
-    0x000055FF, 0x0000FFFF, 0x00AA55FF, 0x00AAFFFF,
-    0xAA0055FF, 0xAA00FFFF, 0xAAAA00FF, 0xAAAAFFFF,
-    0x005500FF, 0x0055AAFF, 0x00FF00FF, 0x00FFAAFF,
-    0xAA5500FF, 0xAA55AAFF, 0xAAFF00FF, 0xAAFFAAFF,
-    0x995555FF, 0x0055FFFF, 0x00FF55FF, 0x00FFFFFF,
-    0xAA5555FF, 0xAA55FFFF, 0xAAFF55FF, 0xAAFFFFFF,
-    0x550000FF, 0x5500AAFF, 0x55AA00FF, 0x55AAAAFF,
-    0xFF0000FF, 0xFF00AAFF, 0xFFAA00FF, 0xFFAAAAFF,
-    0x550055FF, 0x5500FFFF, 0x55AA55FF, 0x55AAFFFF,
-    0xFF0055FF, 0xFF00FFFF, 0xFFAA55FF, 0xFFAAFFFF,
-    0x555500FF, 0x5555AAFF, 0x55FF00FF, 0x55FFAAFF,
-    0xFF5500FF, 0xFF55AAFF, 0xFFFF00FF, 0xFFFFAAFF,
-    0x555555FF, 0x5555FFFF, 0x55FF55FF, 0x55FFFFFF,
-    0xFF5555FF, 0xFF55FFFF, 0xFFFF55FF, 0xFFFFFFFF,
-    0x00000000 // Transparent color.
-
-};
-
-const size_t EGAATCPaletteSize =
-    sizeof(EGAATCPalette) / sizeof(EGAATCPalette[0]);
 
 const size_t VGAint13hPaletteSize =
     sizeof(VGAint13hPalette) / sizeof(VGAint13hPalette[0]);
