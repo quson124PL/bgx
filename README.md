@@ -14,7 +14,7 @@ Used for an osdev project
 ```bgx [mode] [input] [output] [additional arguments]```
 ### Available Modes:
  - ```d``` (Decode - Convert a .bgx file to .png with automatic settings)
- - ```e``` (Encode - Convert a PNG, GIF, BMP or TGA file to .png with automatic settings)
+ - ```e``` (Encode - Convert a PNG, GIF, BMP or TGA file to .bgx with automatic settings)
  - ```i``` (Info - Shows information about the .bgx file)
 ### Available Arguments:
  - ```rle``` (Applies run length encoding on encoded bytes)
