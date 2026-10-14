@@ -2,3 +2,5 @@
 test.sh
 /.vscode
 /build
+*.exe
+bgx
