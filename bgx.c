@@ -36,7 +36,7 @@
 #include "stb_image.h"
 #pragma GCC diagnostic pop
 #define QBGX_FORMAT_VERSION 2
-#define QBGX_SOFTWARE_VERSION "1.2"
+#define QBGX_SOFTWARE_VERSION "1.2a"
 
 
 typedef struct bgx_header{
@@ -256,7 +256,7 @@ uint8_t INTERNAL_ExtractIndex(uint8_t cell, uint8_t pixels_per_cell, uint8_t i){
 
 uint8_t INTERNAL_GetIndex(void* array, uint32_t color, uint32_t max_entries, uint8_t arraytype, uint8_t transparent_index){
     if (((color & 0xFF) == 0) && (arraytype == COLTYPE_VGADAC)){
-        return 254;
+        return transparent_index;
     }
     uint32_t temp;
     for (uint32_t k = 0; k<=max_entries; k++){
@@ -266,9 +266,9 @@ uint8_t INTERNAL_GetIndex(void* array, uint32_t color, uint32_t max_entries, uin
             temp = ((uint32_t*)array)[k];
             if (temp == color) return k;
             break;
-        case COLTYPE_VGAPAL:
         case COLTYPE_VGADAC:
             INTERNAL_convertVGADACtoRGBA( &(((dacColor_t*)array)[k]), &temp);
+            if (k == transparent_index) temp = (temp & ~0xFF);
             if (temp == color) return k;
             break;
         case COLTYPE_EGAATC:
@@ -460,11 +460,6 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
             old_value = color_value;
             INTERNAL_convertVGADACtoRGBA(&dac_color_value, &color_value);
             color_value = (color_value & ~0xFF) | (old_value & 0xFF);
-            if ((color_value & 0xFF) == 0){
-                transparent_choice = 254;
-                index = 254;
-                break;
-            }
             if (!hashmap_get(color_value, &index, palmap)) {
                 if (palette_size == 256){
                     fprintf(stderr, "[ERROR] BGX supports only up to 256 colors\n        For higher bitdepths use a different format.\n");
@@ -474,6 +469,9 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                 ((dacColor_t*)palette)[palette_size].red = dac_color_value.red;
                 ((dacColor_t*)palette)[palette_size].green = dac_color_value.green;
                 ((dacColor_t*)palette)[palette_size].blue = dac_color_value.blue;
+                if (transparent_choice == 0xFF && (color_value & 0xFF) == 0x0){
+                    transparent_choice = index;
+                }
                 hashmap_put(color_value, index, palmap);
                 palette_size++;
             }  
@@ -649,6 +647,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                             repeat = 0;
                         } else {
                             first_cell = false;
+                            previous_cell = cell;
                             repeat++;
                         }
                     } else {
@@ -670,6 +669,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                             repeat = 0;
                         } else {
                             first_cell = false;
+                            previous_cell = cell;
                             repeat++;
                         }
                     } else {
@@ -691,6 +691,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                             repeat = 0;
                         } else {
                             first_cell = false;
+                            previous_cell = cell;
                             repeat++;
                         }
                     } else {
@@ -709,6 +710,7 @@ uint32_t encode(uint32_t x, uint32_t y, uint32_t n, stbi_uc *in_data, FILE* out)
                         repeat = 0;
                     } else {
                         first_cell = false;
+                        previous_cell = index;
                         repeat++;
                     }
                 } else {
